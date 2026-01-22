@@ -1,16 +1,13 @@
 use std::future::pending;
-use std::io;
 use std::num::NonZeroUsize;
-use std::os::fd::AsRawFd;
 use std::os::fd::BorrowedFd;
-use tokio::io::{Interest, unix::AsyncFd};
 use tokio::time::{Duration, sleep};
 
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
 use rtipc::{
-    ChannelConfig, ChannelVector, ConsumeResult, Consumer, EventFd, Producer, QueueConfig,
-    VectorConfig, VectorResource,
+    ChannelConfig, ChannelVector, ConsumeResult, Consumer, Producer, QueueConfig, VectorConfig,
+    VectorResource,
 };
 
 use rtipc_zbus::{
@@ -20,8 +17,8 @@ use rtipc_zbus::{
 
 pub fn to_owned_fd(fd: BorrowedFd<'_>) -> Result<zvariant::OwnedFd, ZBusError> {
     fd.try_clone_to_owned()
-        .map_err(|e| ZBusError::Failed(String::from("try_clone_to_owned failed")))
-        .map(|fd| zvariant::OwnedFd::from(fd))
+        .map_err(|_| ZBusError::Failed(String::from("try_clone_to_owned failed")))
+        .map(zvariant::OwnedFd::from)
 }
 // a producer on the client side is a consumer on the server side
 // and vice versa
@@ -43,7 +40,7 @@ trait Server {
 }
 
 async fn listen_events(mut event: Consumer<MsgEvent>) -> Result<(), ZBusError> {
-    loop {
+    for _ in 0..100 {
         sleep(Duration::from_millis(10)).await;
         match event.pop() {
             ConsumeResult::QueueError => panic!(),
@@ -194,7 +191,7 @@ async fn main() -> Result<(), ZBusError> {
     let connection = Connection::session().await?;
 
     let proxy = ServerProxy::new(&connection).await?;
-    let _ = proxy
+    proxy
         .connect(
             shmfd,
             producers_zbus,

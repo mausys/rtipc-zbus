@@ -1,7 +1,4 @@
-use std::io;
-use std::{error::Error, future::pending, os::fd::AsRawFd, os::fd::RawFd};
-
-use tokio::io::{Interest, unix::AsyncFd};
+use std::{error::Error, future::pending};
 
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
@@ -34,7 +31,7 @@ fn print_vector(vec: &ChannelVector) {
 impl Server {
     pub fn new(mut vec: ChannelVector) -> Self {
         print_vector(&vec);
-        let mut command = vec.take_consumer(0).unwrap();
+        let command = vec.take_consumer(0).unwrap();
         let response = vec.take_producer(0).unwrap();
         let event = vec.take_producer(1).unwrap();
 

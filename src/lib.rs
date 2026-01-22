@@ -10,7 +10,7 @@ use tokio::io::unix::AsyncFd;
 
 use zbus::fdo::Error as ZBusError;
 
-use rtipc::{ChannelConfig, Errno, EventFd, QueueConfig, VectorConfig};
+use rtipc::{ChannelConfig, EventFd, QueueConfig, VectorConfig};
 
 pub struct AsyncEventFd {
     fd: AsyncFd<EventFd>,
@@ -97,7 +97,7 @@ pub fn zbus_into_rtipc_vector_config(
     })
 }
 
-pub fn rtipc_into_zbus_config(configs: &Vec<ChannelConfig>) -> Vec<ChannelConfigBus> {
+pub fn rtipc_into_zbus_config(configs: &[ChannelConfig]) -> Vec<ChannelConfigBus> {
     configs
         .iter()
         .map(ChannelConfigBus::from_rtipc_config)
