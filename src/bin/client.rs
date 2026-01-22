@@ -1,4 +1,3 @@
-use std::future::pending;
 use std::num::NonZeroUsize;
 use std::os::fd::BorrowedFd;
 use tokio::time::{Duration, sleep};
@@ -39,33 +38,34 @@ trait Server {
     ) -> Result<(), ZBusError>;
 }
 
-async fn listen_events(mut event: Consumer<MsgEvent>) -> Result<(), ZBusError> {
-    for _ in 0..100 {
-        sleep(Duration::from_millis(10)).await;
-        match event.pop() {
-            ConsumeResult::QueueError => panic!(),
-            ConsumeResult::NoMessage => {
-                continue;
-            }
-            ConsumeResult::NoNewMessage => {
-                continue;
-            }
-            ConsumeResult::Success => {
-                println!(
-                    "client received event: {}",
-                    event.current_message().unwrap()
-                )
-            }
-            ConsumeResult::SuccessMessagesDiscarded => {
-                println!(
-                    "client received event: {}",
-                    event.current_message().unwrap()
-                )
+async fn listen_events(mut event: Consumer<MsgEvent>) {
+    for _ in 0..1000 {
+        sleep(Duration::from_millis(1)).await;
+        loop {
+            match event.pop() {
+                ConsumeResult::QueueError => panic!(),
+                ConsumeResult::NoMessage => {
+                    break;
+                }
+                ConsumeResult::NoNewMessage => {
+                    break;
+                }
+                ConsumeResult::Success => {
+                    println!(
+                        "client received event: {}",
+                        event.current_message().unwrap()
+                    )
+                }
+                ConsumeResult::SuccessMessagesDiscarded => {
+                    println!(
+                        "client received event: {}",
+                        event.current_message().unwrap()
+                    )
+                }
             }
         };
     }
-    println!("handle_events returns");
-    Ok(())
+    println!("listen_events returns");
 }
 
 async fn exec_commands(
@@ -103,6 +103,7 @@ async fn exec_commands(
             response.current_message().unwrap()
         );
     }
+    println!("all commands executed");
 }
 
 #[tokio::main]
@@ -209,15 +210,16 @@ async fn main() -> Result<(), ZBusError> {
     let response = vec.take_consumer(0).unwrap();
     let event = vec.take_consumer(1).unwrap();
 
-    tokio::spawn(async move {
-        listen_events(event).await.unwrap();
+    let event_task = tokio::spawn(async move {
+        listen_events(event).await;
     });
 
-    tokio::spawn(async move {
+    let command_task = tokio::spawn(async move {
         exec_commands(&commands, command, response).await;
     });
 
-    pending::<()>().await;
+    event_task.await.unwrap();
+    command_task.await.unwrap();
 
     Ok(())
 }
