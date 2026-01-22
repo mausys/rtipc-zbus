@@ -1,12 +1,43 @@
 use std::fmt;
 
+use std::io;
 use std::num::NonZeroUsize;
 
 use serde::{Deserialize, Serialize};
 
+use tokio::io::Error;
+use tokio::io::unix::AsyncFd;
+
 use zbus::fdo::Error as ZBusError;
 
-use rtipc::{ChannelConfig, QueueConfig, VectorConfig};
+use rtipc::{ChannelConfig, Errno, EventFd, QueueConfig, VectorConfig};
+
+pub struct AsyncEventFd {
+    fd: AsyncFd<EventFd>,
+}
+
+impl AsyncEventFd {
+    pub fn new(fd: EventFd) -> io::Result<Self> {
+        Ok(Self {
+            fd: AsyncFd::new(fd)?,
+        })
+    }
+
+    pub async fn await_event(&self) -> io::Result<u64> {
+        loop {
+            let mut guard = self.fd.readable().await?;
+
+            match guard.try_io(|fd| {
+                fd.get_ref()
+                    .read()
+                    .map_err(|e| Error::from_raw_os_error(e as i32))
+            }) {
+                Ok(result) => return result,
+                Err(_would_block) => continue,
+            }
+        }
+    }
+}
 
 #[derive(zvariant::Type, Debug, Serialize, Deserialize)]
 pub struct ChannelConfigBus {

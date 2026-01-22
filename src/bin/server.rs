@@ -1,13 +1,17 @@
+use std::io;
 use std::{error::Error, future::pending, os::fd::AsRawFd, os::fd::RawFd};
 
 use tokio::io::{Interest, unix::AsyncFd};
 
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
-use rtipc::{ChannelVector, ConsumeResult, Consumer, ProduceTryResult, Producer, VectorResource};
+use rtipc::{
+    ChannelVector, ConsumeResult, Consumer, EventFd, ProduceTryResult, Producer, VectorResource,
+};
 
 use rtipc_zbus::{
-    ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse, zbus_into_rtipc_vector_config,
+    AsyncEventFd, ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse,
+    zbus_into_rtipc_vector_config,
 };
 
 struct Server {
@@ -30,7 +34,7 @@ fn print_vector(vec: &ChannelVector) {
 impl Server {
     pub fn new(mut vec: ChannelVector) -> Self {
         print_vector(&vec);
-        let command = vec.take_consumer(0).unwrap();
+        let mut command = vec.take_consumer(0).unwrap();
         let response = vec.take_producer(0).unwrap();
         let event = vec.take_producer(1).unwrap();
 
@@ -41,8 +45,8 @@ impl Server {
         }
     }
 
-    fn raw_fd(&self) -> Option<RawFd> {
-        self.command.eventfd().map(|fd| fd.as_raw_fd())
+    fn take_eventfd(&mut self) -> Option<EventFd> {
+        self.command.take_eventfd()
     }
 
     fn process_cmd(&mut self) -> bool {
@@ -99,7 +103,8 @@ struct ServerInterface {}
 #[interface(name = "org.rtipc.server")]
 impl ServerInterface {
     // Can be `async` as well.
-
+    // a producer on the client side is a consumer on the server side
+    // and vice versa
     async fn connect(
         &mut self,
         shmfd_bus: zvariant::OwnedFd,
@@ -130,15 +135,19 @@ impl ServerInterface {
 
         let mut server = Server::new(vec);
 
-        tokio::spawn(async move {
-            let fd = server.raw_fd().unwrap();
-            let notify = AsyncFd::new(fd).unwrap();
+        tokio::task::spawn(async move {
+            let fd = server.take_eventfd().unwrap();
+            let async_fd = AsyncEventFd::new(fd).unwrap();
+
             let mut run = true;
             while run {
-                let guard = notify.ready(Interest::READABLE).await.unwrap();
-                if guard.ready().is_readable() {
-                    run = server.process_cmd();
-                }
+                async_fd
+                    .await_event()
+                    .await
+                    .inspect_err(|e| println!("await_event error {e}"))
+                    .unwrap();
+
+                run = server.process_cmd();
             }
         });
 
@@ -146,7 +155,6 @@ impl ServerInterface {
     }
 }
 
-// Although we use `tokio` here, you can use any async runtime of choice.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let greeter = ServerInterface {};

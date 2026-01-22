@@ -1,14 +1,21 @@
+use std::future::pending;
+use std::io;
 use std::num::NonZeroUsize;
+use std::os::fd::AsRawFd;
 use std::os::fd::BorrowedFd;
+use tokio::io::{Interest, unix::AsyncFd};
+use tokio::time::{Duration, sleep};
+
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
 use rtipc::{
-    ChannelConfig, ChannelVector, ConsumeResult, Consumer, Producer, QueueConfig, VectorConfig,
-    VectorResource,
+    ChannelConfig, ChannelVector, ConsumeResult, Consumer, EventFd, Producer, QueueConfig,
+    VectorConfig, VectorResource,
 };
 
 use rtipc_zbus::{
-    ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse, rtipc_into_zbus_config,
+    AsyncEventFd, ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse,
+    rtipc_into_zbus_config,
 };
 
 pub fn to_owned_fd(fd: BorrowedFd<'_>) -> Result<zvariant::OwnedFd, ZBusError> {
@@ -16,7 +23,8 @@ pub fn to_owned_fd(fd: BorrowedFd<'_>) -> Result<zvariant::OwnedFd, ZBusError> {
         .map_err(|e| ZBusError::Failed(String::from("try_clone_to_owned failed")))
         .map(|fd| zvariant::OwnedFd::from(fd))
 }
-
+// a producer on the client side is a consumer on the server side
+// and vice versa
 #[proxy(
     interface = "org.rtipc.server",
     default_service = "org.rtipc.server",
@@ -26,15 +34,80 @@ trait Server {
     async fn connect(
         &self,
         shmfd_bus: zvariant::OwnedFd,
-        consumers_zbus: Vec<ChannelConfigBus>,
-        consumers_eventfds: Vec<zvariant::OwnedFd>,
         producers_zbus: Vec<ChannelConfigBus>,
         producers_eventfds: Vec<zvariant::OwnedFd>,
+        consumers_zbus: Vec<ChannelConfigBus>,
+        consumers_eventfds: Vec<zvariant::OwnedFd>,
         info: Vec<u8>,
-    ) -> Result<String, ZBusError>;
+    ) -> Result<(), ZBusError>;
 }
 
-// Although we use `tokio` here, you can use any async runtime of choice.
+async fn listen_events(mut event: Consumer<MsgEvent>) -> Result<(), ZBusError> {
+    loop {
+        sleep(Duration::from_millis(10)).await;
+        match event.pop() {
+            ConsumeResult::QueueError => panic!(),
+            ConsumeResult::NoMessage => {
+                continue;
+            }
+            ConsumeResult::NoNewMessage => {
+                continue;
+            }
+            ConsumeResult::Success => {
+                println!(
+                    "client received event: {}",
+                    event.current_message().unwrap()
+                )
+            }
+            ConsumeResult::SuccessMessagesDiscarded => {
+                println!(
+                    "client received event: {}",
+                    event.current_message().unwrap()
+                )
+            }
+        };
+    }
+    println!("handle_events returns");
+    Ok(())
+}
+
+async fn exec_commands(
+    cmds: &[MsgCommand],
+    mut command: Producer<MsgCommand>,
+    mut response: Consumer<MsgResponse>,
+) {
+    let fd = response.take_eventfd().unwrap();
+    let async_fd = AsyncEventFd::new(fd).unwrap();
+
+    for cmd in cmds {
+        command.current_message().clone_from(cmd);
+        command.force_push();
+
+        async_fd
+            .await_event()
+            .await
+            .inspect_err(|e| println!("await_event error {e}"))
+            .unwrap();
+
+        match response.pop() {
+            ConsumeResult::QueueError => panic!(),
+            ConsumeResult::NoMessage => {
+                continue;
+            }
+            ConsumeResult::NoNewMessage => {
+                continue;
+            }
+            ConsumeResult::Success => {}
+            ConsumeResult::SuccessMessagesDiscarded => {}
+        };
+
+        println!(
+            "client received response: {}",
+            response.current_message().unwrap()
+        );
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), ZBusError> {
     let commands: [MsgCommand; 6] = [
@@ -80,7 +153,7 @@ async fn main() -> Result<(), ZBusError> {
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
                 info: b"rpc response".to_vec(),
             },
-            eventfd: false,
+            eventfd: true,
         },
         ChannelConfig {
             queue: QueueConfig {
@@ -88,7 +161,7 @@ async fn main() -> Result<(), ZBusError> {
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
                 info: b"rpc event".to_vec(),
             },
-            eventfd: true,
+            eventfd: false,
         },
     ];
 
@@ -121,86 +194,33 @@ async fn main() -> Result<(), ZBusError> {
     let connection = Connection::session().await?;
 
     let proxy = ServerProxy::new(&connection).await?;
-    let reply = proxy
+    let _ = proxy
         .connect(
             shmfd,
-            consumers_zbus,
-            consumer_eventfds,
             producers_zbus,
             producer_eventfds,
+            consumers_zbus,
+            consumer_eventfds,
             vconfig.info,
         )
         .await?;
 
-    let vec = ChannelVector::new(resource)
+    let mut vec = ChannelVector::new(resource)
         .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelVector filed")))?;
 
+    let command = vec.take_producer(0).unwrap();
+    let response = vec.take_consumer(0).unwrap();
+    let event = vec.take_consumer(1).unwrap();
+
+    tokio::spawn(async move {
+        listen_events(event).await.unwrap();
+    });
+
+    tokio::spawn(async move {
+        exec_commands(&commands, command, response).await;
+    });
+
+    pending::<()>().await;
+
     Ok(())
-}
-
-fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), ZBusError> {
-    match consumer.pop() {
-        ConsumeResult::QueueError => panic!(),
-        ConsumeResult::NoMessage => {
-            return Err(ZBusError::Failed(String::from("ConsumeResult::NoMessage")));
-        }
-        ConsumeResult::NoNewMessage => {
-            return Err(ZBusError::Failed(String::from("ConsumeResult::NoMessage")));
-        }
-        ConsumeResult::Success => {
-            println!(
-                "client received event: {}",
-                consumer.current_message().unwrap()
-            )
-        }
-        ConsumeResult::SuccessMessagesDiscarded => {
-            println!(
-                "client received event: {}",
-                consumer.current_message().unwrap()
-            )
-        }
-    };
-    println!("handle_events returns");
-    Ok(())
-}
-
-struct App {
-    command: Producer<MsgCommand>,
-    response: Consumer<MsgResponse>,
-}
-
-impl App {
-    pub fn new(mut vec: ChannelVector) -> Self {
-        let command = vec.take_producer(0).unwrap();
-        let response = vec.take_consumer(0).unwrap();
-
-        Self { command, response }
-    }
-
-    pub fn run(&mut self, cmds: &[MsgCommand]) {
-        for cmd in cmds {
-            self.command.current_message().clone_from(cmd);
-            self.command.force_push();
-
-            loop {
-                match self.response.pop() {
-                    ConsumeResult::QueueError => panic!(),
-                    ConsumeResult::NoMessage => {
-                        continue;
-                    }
-                    ConsumeResult::NoNewMessage => {
-                        continue;
-                    }
-                    ConsumeResult::Success => {}
-                    ConsumeResult::SuccessMessagesDiscarded => {}
-                };
-
-                println!(
-                    "client received response: {}",
-                    self.response.current_message().unwrap()
-                );
-                break;
-            }
-        }
-    }
 }
