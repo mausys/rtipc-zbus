@@ -5,7 +5,7 @@ use tokio::time::{Duration, sleep};
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
 use rtipc::{
-    ChannelConfig, ChannelVector, ConsumeResult, Consumer, Producer, QueueConfig, VectorConfig,
+    ChannelConfig, ChannelVector, PopResult, Consumer, Producer, QueueConfig, VectorConfig,
     VectorResource,
 };
 
@@ -43,20 +43,20 @@ async fn listen_events(mut event: Consumer<MsgEvent>) {
         sleep(Duration::from_millis(1)).await;
         loop {
             match event.pop() {
-                ConsumeResult::QueueError => panic!(),
-                ConsumeResult::NoMessage => {
+                PopResult::QueueError => panic!(),
+                PopResult::NoMessage => {
                     break;
                 }
-                ConsumeResult::NoNewMessage => {
+                PopResult::NoNewMessage => {
                     break;
                 }
-                ConsumeResult::Success => {
+                PopResult::Success => {
                     println!(
                         "client received event: {}",
                         event.current_message().unwrap()
                     )
                 }
-                ConsumeResult::SuccessMessagesDiscarded => {
+                PopResult::SuccessMessagesDiscarded => {
                     println!(
                         "client received event: {}",
                         event.current_message().unwrap()
@@ -87,15 +87,15 @@ async fn exec_commands(
             .unwrap();
 
         match response.pop() {
-            ConsumeResult::QueueError => panic!(),
-            ConsumeResult::NoMessage => {
+            PopResult::QueueError => panic!(),
+            PopResult::NoMessage => {
                 continue;
             }
-            ConsumeResult::NoNewMessage => {
+            PopResult::NoNewMessage => {
                 continue;
             }
-            ConsumeResult::Success => {}
-            ConsumeResult::SuccessMessagesDiscarded => {}
+            PopResult::Success => {}
+            PopResult::SuccessMessagesDiscarded => {}
         };
 
         println!(

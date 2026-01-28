@@ -3,7 +3,7 @@ use std::{error::Error, future::pending};
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
 use rtipc::{
-    ChannelVector, ConsumeResult, Consumer, EventFd, ProduceTryResult, Producer, VectorResource,
+    ChannelVector, PopResult, Consumer, EventFd, TryPushResult, Producer, VectorResource,
 };
 
 use rtipc_zbus::{
@@ -48,11 +48,11 @@ impl Server {
 
     fn process_cmd(&mut self) -> bool {
         match self.command.pop() {
-            ConsumeResult::QueueError => panic!(),
-            ConsumeResult::NoMessage => return false,
-            ConsumeResult::NoNewMessage => return false,
-            ConsumeResult::Success => {}
-            ConsumeResult::SuccessMessagesDiscarded => {}
+            PopResult::QueueError => panic!(),
+            PopResult::NoMessage => return false,
+            PopResult::NoNewMessage => return false,
+            PopResult::Success => {}
+            PopResult::SuccessMessagesDiscarded => {}
         };
         let mut run = true;
         let cmd = self.command.current_message().unwrap();
@@ -84,7 +84,7 @@ impl Server {
             event.nr = i;
             if force {
                 self.event.force_push();
-            } else if self.event.try_push() == ProduceTryResult::QueueFull {
+            } else if self.event.try_push() == TryPushResult::QueueFull {
                 return i as i32;
             }
         }
