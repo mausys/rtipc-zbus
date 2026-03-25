@@ -2,9 +2,7 @@ use std::{error::Error, future::pending};
 
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
-use rtipc::{
-    ChannelVector, PopResult, Consumer, EventFd, TryPushResult, Producer, VectorResource,
-};
+use rtipc::{ChannelVector, Consumer, EventFd, PopResult, Producer, TryPushResult, VectorResource};
 
 use rtipc_zbus::{
     AsyncEventFd, ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse,
@@ -104,27 +102,19 @@ impl ServerInterface {
     // and vice versa
     async fn connect(
         &mut self,
-        shmfd_bus: zvariant::OwnedFd,
-        consumers_zbus: Vec<ChannelConfigBus>,
-        consumer_eventfds_bus: Vec<zvariant::OwnedFd>,
-        producers_zbus: Vec<ChannelConfigBus>,
-        producer_eventfds_bus: Vec<zvariant::OwnedFd>,
+        shmfd: zvariant::OwnedFd,
+        consumers: Vec<ChannelConfigBus>,
+        consumer_eventfds: Vec<zvariant::OwnedFd>,
+        producers: Vec<ChannelConfigBus>,
+        producer_eventfds: Vec<zvariant::OwnedFd>,
         info: Vec<u8>,
     ) -> Result<(), ZBusError> {
-        let config = zbus_into_rtipc_vector_config(consumers_zbus, producers_zbus, info)?;
+        let config = zbus_into_rtipc_vector_config(consumers, producers, info)?;
 
-        let shmfd = shmfd_bus.into();
+        let cfds = consumer_eventfds.into_iter().map(|fd| fd.into()).collect();
+        let pfds = producer_eventfds.into_iter().map(|fd| fd.into()).collect();
 
-        let consumer_eventfds = consumer_eventfds_bus
-            .into_iter()
-            .map(|fd| fd.into())
-            .collect();
-        let producer_eventfds = producer_eventfds_bus
-            .into_iter()
-            .map(|fd| fd.into())
-            .collect();
-
-        let resource = VectorResource::new(&config, shmfd, consumer_eventfds, producer_eventfds)
+        let resource = VectorResource::new(&config, shmfd.into(), cfds, pfds)
             .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
 
         let vec = ChannelVector::new(resource)

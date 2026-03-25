@@ -5,7 +5,7 @@ use tokio::time::{Duration, sleep};
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
 use rtipc::{
-    ChannelConfig, ChannelVector, PopResult, Consumer, Producer, QueueConfig, VectorConfig,
+    ChannelConfig, ChannelVector, Consumer, PopResult, Producer, QueueConfig, VectorConfig,
     VectorResource,
 };
 
@@ -63,7 +63,7 @@ async fn listen_events(mut event: Consumer<MsgEvent>) {
                     )
                 }
             }
-        };
+        }
     }
     println!("listen_events returns");
 }
