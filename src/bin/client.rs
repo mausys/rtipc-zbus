@@ -9,10 +9,7 @@ use rtipc::{
     VectorResource,
 };
 
-use rtipc_zbus::{
-    AsyncEventFd, ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse,
-    rtipc_into_zbus_config,
-};
+use rtipc_zbus::{AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse};
 
 pub fn to_owned_fd(fd: BorrowedFd<'_>) -> Result<zvariant::OwnedFd, ZBusError> {
     fd.try_clone_to_owned()
@@ -27,15 +24,8 @@ pub fn to_owned_fd(fd: BorrowedFd<'_>) -> Result<zvariant::OwnedFd, ZBusError> {
     default_path = "/org/rtipc/server"
 )]
 trait Server {
-    async fn connect(
-        &self,
-        shmfd_bus: zvariant::OwnedFd,
-        producers_zbus: Vec<ChannelConfigBus>,
-        producers_eventfds: Vec<zvariant::OwnedFd>,
-        consumers_zbus: Vec<ChannelConfigBus>,
-        consumers_eventfds: Vec<zvariant::OwnedFd>,
-        info: Vec<u8>,
-    ) -> Result<(), ZBusError>;
+    async fn connect(&self, request: Vec<u8>, fds: Vec<zvariant::OwnedFd>)
+    -> Result<(), ZBusError>;
 }
 
 async fn listen_events(mut event: Consumer<MsgEvent>) {
@@ -171,20 +161,9 @@ async fn main() -> Result<(), ZBusError> {
 
     let resource = VectorResource::allocate(&vconfig)
         .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
+    let (request, bfds) = resource.serialize();
 
-    let consumers_zbus = rtipc_into_zbus_config(&vconfig.consumers);
-    let producers_zbus = rtipc_into_zbus_config(&vconfig.producers);
-
-    let shmfd = to_owned_fd(resource.shmfd())?;
-
-    let consumer_eventfds: Vec<zvariant::OwnedFd> = resource
-        .collect_consumer_eventfds()
-        .into_iter()
-        .map(to_owned_fd)
-        .collect::<Result<Vec<zvariant::OwnedFd>, ZBusError>>()?;
-
-    let producer_eventfds: Vec<zvariant::OwnedFd> = resource
-        .collect_producer_eventfds()
+    let fds: Vec<zvariant::OwnedFd> = bfds
         .into_iter()
         .map(to_owned_fd)
         .collect::<Result<Vec<zvariant::OwnedFd>, ZBusError>>()?;
@@ -192,19 +171,10 @@ async fn main() -> Result<(), ZBusError> {
     let connection = Connection::session().await?;
 
     let proxy = ServerProxy::new(&connection).await?;
-    proxy
-        .connect(
-            shmfd,
-            producers_zbus,
-            producer_eventfds,
-            consumers_zbus,
-            consumer_eventfds,
-            vconfig.info,
-        )
-        .await?;
+    proxy.connect(request, fds).await?;
 
     let mut vec = ChannelVector::new(resource)
-        .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelVector filed")))?;
+        .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelVector failed")))?;
 
     let command = vec.take_producer(0).unwrap();
     let response = vec.take_consumer(0).unwrap();

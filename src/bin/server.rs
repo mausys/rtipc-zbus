@@ -5,8 +5,7 @@ use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 use rtipc::{ChannelVector, Consumer, EventFd, PopResult, Producer, TryPushResult, VectorResource};
 
 use rtipc_zbus::{
-    AsyncEventFd, ChannelConfigBus, CommandId, MsgCommand, MsgEvent, MsgResponse,
-    zbus_into_rtipc_vector_config,
+    AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse,
 };
 
 struct Server {
@@ -102,19 +101,12 @@ impl ServerInterface {
     // and vice versa
     async fn connect(
         &mut self,
-        shmfd: zvariant::OwnedFd,
-        consumers: Vec<ChannelConfigBus>,
-        consumer_eventfds: Vec<zvariant::OwnedFd>,
-        producers: Vec<ChannelConfigBus>,
-        producer_eventfds: Vec<zvariant::OwnedFd>,
-        info: Vec<u8>,
+        request: Vec<u8>,
+        fds: Vec<zvariant::OwnedFd>,
     ) -> Result<(), ZBusError> {
-        let config = zbus_into_rtipc_vector_config(consumers, producers, info)?;
+        let fdsq = fds.into_iter().map(|fd| fd.into()).collect();
 
-        let cfds = consumer_eventfds.into_iter().map(|fd| fd.into()).collect();
-        let pfds = producer_eventfds.into_iter().map(|fd| fd.into()).collect();
-
-        let resource = VectorResource::new(&config, shmfd.into(), cfds, pfds)
+        let resource = VectorResource::deserialize(request.as_slice(), fdsq)
             .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
 
         let vec = ChannelVector::new(resource)
