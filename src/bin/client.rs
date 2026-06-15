@@ -6,7 +6,6 @@ use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
 use rtipc::{
     ChannelConfig, ChannelVector, Consumer, PopResult, Producer, QueueConfig, VectorConfig,
-    VectorResource,
 };
 
 use rtipc_zbus::{AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse};
@@ -129,9 +128,9 @@ async fn main() -> Result<(), ZBusError> {
         queue: QueueConfig {
             additional_messages: 0,
             message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
-            info: b"rpc command".to_vec(),
         },
         eventfd: true,
+        info: b"rpc command".to_vec(),
     }];
 
     let s2c_channels: [ChannelConfig; 2] = [
@@ -139,17 +138,17 @@ async fn main() -> Result<(), ZBusError> {
             queue: QueueConfig {
                 additional_messages: 0,
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
-                info: b"rpc response".to_vec(),
             },
             eventfd: true,
+            info: b"rpc response".to_vec(),
         },
         ChannelConfig {
             queue: QueueConfig {
                 additional_messages: 10,
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
-                info: b"rpc event".to_vec(),
             },
             eventfd: false,
+            info: b"rpc event".to_vec(),
         },
     ];
 
@@ -159,9 +158,9 @@ async fn main() -> Result<(), ZBusError> {
         info: b"rpc example".to_vec(),
     };
 
-    let resource = VectorResource::allocate(&vconfig)
+    let mut vec = ChannelVector::new(&vconfig)
         .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
-    let (request, bfds) = resource.serialize();
+    let (request, bfds) = vec.serialize();
 
     let fds: Vec<zvariant::OwnedFd> = bfds
         .into_iter()
@@ -172,9 +171,6 @@ async fn main() -> Result<(), ZBusError> {
 
     let proxy = ServerProxy::new(&connection).await?;
     proxy.connect(request, fds).await?;
-
-    let mut vec = ChannelVector::new(resource)
-        .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelVector failed")))?;
 
     let command = vec.take_producer(0).unwrap();
     let response = vec.take_consumer(0).unwrap();

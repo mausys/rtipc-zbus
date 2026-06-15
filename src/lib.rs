@@ -53,7 +53,7 @@ impl ChannelConfigBus {
             additonal_messages: config.queue.additional_messages as u32,
             message_size: config.queue.message_size.get() as u32,
             eventfd: config.eventfd,
-            info: config.queue.info.clone(),
+            info: config.info.clone(),
         }
     }
 
@@ -65,8 +65,8 @@ impl ChannelConfigBus {
             queue: QueueConfig {
                 additional_messages: self.additonal_messages as usize,
                 message_size,
-                info: self.info,
             },
+            info: self.info,
             eventfd: self.eventfd,
         })
     }

@@ -2,7 +2,7 @@ use std::{error::Error, future::pending};
 
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
-use rtipc::{ChannelVector, Consumer, EventFd, PopResult, Producer, TryPushResult, VectorResource};
+use rtipc::{ChannelVector, Consumer, EventFd, PopResult, Producer, TryPushResult};
 
 use rtipc_zbus::{
     AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse,
@@ -106,11 +106,8 @@ impl ServerInterface {
     ) -> Result<(), ZBusError> {
         let fdsq = fds.into_iter().map(|fd| fd.into()).collect();
 
-        let resource = VectorResource::deserialize(request.as_slice(), fdsq)
+        let vec = ChannelVector::deserialize(request.as_slice(), fdsq)
             .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
-
-        let vec = ChannelVector::new(resource)
-            .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelVector filed")))?;
 
         let mut server = Server::new(vec);
 
