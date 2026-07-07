@@ -4,9 +4,7 @@ use tokio::time::{Duration, sleep};
 
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
-use rtipc::{
-    ChannelConfig, ChannelVector, Consumer, PopResult, Producer, QueueConfig, VectorConfig,
-};
+use rtipc::{ChannelAttr, ChannelGroup, Consumer, GroupAttr, PopResult, Producer, QueueAttr};
 
 use rtipc_zbus::{AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse};
 
@@ -124,8 +122,8 @@ async fn main() -> Result<(), ZBusError> {
         },
     ];
 
-    let c2s_channels: [ChannelConfig; 1] = [ChannelConfig {
-        queue: QueueConfig {
+    let c2s_channels: [ChannelAttr; 1] = [ChannelAttr {
+        queue: QueueAttr {
             additional_messages: 0,
             message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
         },
@@ -133,17 +131,17 @@ async fn main() -> Result<(), ZBusError> {
         info: b"rpc command".to_vec(),
     }];
 
-    let s2c_channels: [ChannelConfig; 2] = [
-        ChannelConfig {
-            queue: QueueConfig {
+    let s2c_channels: [ChannelAttr; 2] = [
+        ChannelAttr {
+            queue: QueueAttr {
                 additional_messages: 0,
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
             },
             eventfd: true,
             info: b"rpc response".to_vec(),
         },
-        ChannelConfig {
-            queue: QueueConfig {
+        ChannelAttr {
+            queue: QueueAttr {
                 additional_messages: 10,
                 message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
             },
@@ -152,15 +150,15 @@ async fn main() -> Result<(), ZBusError> {
         },
     ];
 
-    let vconfig = VectorConfig {
+    let attr = GroupAttr {
         producers: c2s_channels.to_vec(),
         consumers: s2c_channels.to_vec(),
         info: b"rpc example".to_vec(),
     };
 
-    let mut vec = ChannelVector::new(&vconfig)
-        .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
-    let (request, bfds) = vec.serialize();
+    let mut grp = ChannelGroup::new(&attr)
+        .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelGroup::new failed")))?;
+    let (request, bfds) = grp.serialize();
 
     let fds: Vec<zvariant::OwnedFd> = bfds
         .into_iter()
@@ -172,9 +170,9 @@ async fn main() -> Result<(), ZBusError> {
     let proxy = ServerProxy::new(&connection).await?;
     proxy.connect(request, fds).await?;
 
-    let command = vec.take_producer(0).unwrap();
-    let response = vec.take_consumer(0).unwrap();
-    let event = vec.take_consumer(1).unwrap();
+    let command = grp.take_producer(0).unwrap();
+    let response = grp.take_consumer(0).unwrap();
+    let event = grp.take_consumer(1).unwrap();
 
     let event_task = tokio::spawn(async move {
         listen_events(event).await;

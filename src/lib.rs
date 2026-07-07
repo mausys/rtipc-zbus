@@ -10,7 +10,7 @@ use tokio::io::unix::AsyncFd;
 
 use zbus::fdo::Error as ZBusError;
 
-use rtipc::{ChannelConfig, EventFd, QueueConfig, VectorConfig};
+use rtipc::{ChannelAttr, EventFd, GroupAttr, QueueAttr};
 
 pub struct AsyncEventFd {
     fd: AsyncFd<EventFd>,
@@ -40,29 +40,29 @@ impl AsyncEventFd {
 }
 
 #[derive(zvariant::Type, Debug, Serialize, Deserialize)]
-pub struct ChannelConfigBus {
+pub struct ChannelAttrBus {
     pub additonal_messages: u32,
     pub message_size: u32,
     pub eventfd: bool,
     pub info: Vec<u8>,
 }
 
-impl ChannelConfigBus {
-    fn from_rtipc_config(config: &ChannelConfig) -> Self {
+impl ChannelAttrBus {
+    fn from_rtipc_attr(attr: &ChannelAttr) -> Self {
         Self {
-            additonal_messages: config.queue.additional_messages as u32,
-            message_size: config.queue.message_size.get() as u32,
-            eventfd: config.eventfd,
-            info: config.info.clone(),
+            additonal_messages: attr.queue.additional_messages as u32,
+            message_size: attr.queue.message_size.get() as u32,
+            eventfd: attr.eventfd,
+            info: attr.info.clone(),
         }
     }
 
-    fn into_rtipc_config(self) -> Result<ChannelConfig, ZBusError> {
+    fn into_rtipc_attr(self) -> Result<ChannelAttr, ZBusError> {
         let message_size = NonZeroUsize::new(self.message_size as usize).ok_or(
             ZBusError::InvalidArgs(String::from("message_size can't be zero")),
         )?;
-        Ok(ChannelConfig {
-            queue: QueueConfig {
+        Ok(ChannelAttr {
+            queue: QueueAttr {
                 additional_messages: self.additonal_messages as usize,
                 message_size,
             },
@@ -72,36 +72,31 @@ impl ChannelConfigBus {
     }
 }
 
-fn zbus_into_rtipc_config(
-    channels_bus: Vec<ChannelConfigBus>,
-) -> Result<Vec<ChannelConfig>, ZBusError> {
-    let channels: Result<Vec<ChannelConfig>, ZBusError> = channels_bus
+fn zbus_into_rtipc_attr(channels_bus: Vec<ChannelAttrBus>) -> Result<Vec<ChannelAttr>, ZBusError> {
+    let channels: Result<Vec<ChannelAttr>, ZBusError> = channels_bus
         .into_iter()
-        .map(|c| c.into_rtipc_config())
+        .map(|c| c.into_rtipc_attr())
         .collect();
     channels
 }
 
-pub fn zbus_into_rtipc_vector_config(
-    consumers_zbus: Vec<ChannelConfigBus>,
-    producers_zbus: Vec<ChannelConfigBus>,
+pub fn zbus_into_rtipc_group_attr(
+    consumers_zbus: Vec<ChannelAttrBus>,
+    producers_zbus: Vec<ChannelAttrBus>,
     info: Vec<u8>,
-) -> Result<VectorConfig, ZBusError> {
-    let consumers = zbus_into_rtipc_config(consumers_zbus)?;
-    let producers = zbus_into_rtipc_config(producers_zbus)?;
+) -> Result<GroupAttr, ZBusError> {
+    let consumers = zbus_into_rtipc_attr(consumers_zbus)?;
+    let producers = zbus_into_rtipc_attr(producers_zbus)?;
 
-    Ok(VectorConfig {
+    Ok(GroupAttr {
         consumers,
         producers,
         info,
     })
 }
 
-pub fn rtipc_into_zbus_config(configs: &[ChannelConfig]) -> Vec<ChannelConfigBus> {
-    configs
-        .iter()
-        .map(ChannelConfigBus::from_rtipc_config)
-        .collect()
+pub fn rtipc_into_zbus_attr(attrs: &[ChannelAttr]) -> Vec<ChannelAttrBus> {
+    attrs.iter().map(ChannelAttrBus::from_rtipc_attr).collect()
 }
 
 #[repr(u32)]

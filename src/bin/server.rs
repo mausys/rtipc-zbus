@@ -2,11 +2,9 @@ use std::{error::Error, future::pending};
 
 use zbus::{connection, fdo::Error as ZBusError, interface, zvariant};
 
-use rtipc::{ChannelVector, Consumer, EventFd, PopResult, Producer, TryPushResult};
+use rtipc::{ChannelGroup, Consumer, EventFd, PopResult, Producer, TryPushResult};
 
-use rtipc_zbus::{
-    AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse,
-};
+use rtipc_zbus::{AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse};
 
 struct Server {
     command: Consumer<MsgCommand>,
@@ -14,23 +12,23 @@ struct Server {
     event: Producer<MsgEvent>,
 }
 
-fn print_vector(vec: &ChannelVector) {
-    let vec_info = str::from_utf8(vec.info()).unwrap();
-    let cmd_info = str::from_utf8(vec.consumer_info(0).unwrap()).unwrap();
-    let rsp_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
-    let evt_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
+fn print_group(grp: &ChannelGroup) {
+    let grp_info = str::from_utf8(grp.info()).unwrap();
+    let cmd_info = str::from_utf8(grp.consumer_info(0).unwrap()).unwrap();
+    let rsp_info = str::from_utf8(grp.producer_info(0).unwrap()).unwrap();
+    let evt_info = str::from_utf8(grp.producer_info(1).unwrap()).unwrap();
     println!(
-        "server received request vec={} cmd={} rsp={} evt={}",
-        vec_info, cmd_info, rsp_info, evt_info
+        "server received request grp={} cmd={} rsp={} evt={}",
+        grp_info, cmd_info, rsp_info, evt_info
     );
 }
 
 impl Server {
-    pub fn new(mut vec: ChannelVector) -> Self {
-        print_vector(&vec);
-        let command = vec.take_consumer(0).unwrap();
-        let response = vec.take_producer(0).unwrap();
-        let event = vec.take_producer(1).unwrap();
+    pub fn new(mut grp: ChannelGroup) -> Self {
+        print_group(&grp);
+        let command = grp.take_consumer(0).unwrap();
+        let response = grp.take_producer(0).unwrap();
+        let event = grp.take_producer(1).unwrap();
 
         Self {
             command,
@@ -106,10 +104,11 @@ impl ServerInterface {
     ) -> Result<(), ZBusError> {
         let fdsq = fds.into_iter().map(|fd| fd.into()).collect();
 
-        let vec = ChannelVector::deserialize(request.as_slice(), fdsq)
-            .map_err(|_| ZBusError::InvalidArgs(String::from("VectorResource failed")))?;
+        let grp = ChannelGroup::deserialize(request.as_slice(), fdsq).map_err(|_| {
+            ZBusError::InvalidArgs(String::from("ChannelGroup::deserialize failed"))
+        })?;
 
-        let mut server = Server::new(vec);
+        let mut server = Server::new(grp);
 
         tokio::task::spawn(async move {
             let fd = server.take_eventfd().unwrap();
