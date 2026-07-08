@@ -156,7 +156,7 @@ async fn main() -> Result<(), ZBusError> {
         info: b"rpc example".to_vec(),
     };
 
-    let mut grp = ChannelGroup::new(&attr)
+    let mut grp = ChannelGroup::from_attr(&attr)
         .map_err(|_| ZBusError::InvalidArgs(String::from("ChannelGroup::new failed")))?;
     let (request, bfds) = grp.serialize();
 
