@@ -10,7 +10,7 @@ use tokio::io::unix::AsyncFd;
 
 use zbus::fdo::Error as ZBusError;
 
-use rtipc::{ChannelAttr, EventFd, GroupAttr, QueueAttr};
+use rtipc::{ChannelAttr, EventFd, GroupAttr};
 
 pub struct AsyncEventFd {
     fd: AsyncFd<EventFd>,
@@ -50,8 +50,8 @@ pub struct ChannelAttrBus {
 impl ChannelAttrBus {
     fn from_rtipc_attr(attr: &ChannelAttr) -> Self {
         Self {
-            additonal_messages: attr.queue.additional_messages as u32,
-            message_size: attr.queue.message_size.get() as u32,
+            additonal_messages: attr.additional_messages as u32,
+            message_size: attr.message_size.get() as u32,
             eventfd: attr.eventfd,
             info: attr.info.clone(),
         }
@@ -62,10 +62,9 @@ impl ChannelAttrBus {
             ZBusError::InvalidArgs(String::from("message_size can't be zero")),
         )?;
         Ok(ChannelAttr {
-            queue: QueueAttr {
-                additional_messages: self.additonal_messages as usize,
-                message_size,
-            },
+            additional_messages: self.additonal_messages as usize,
+            message_size,
+
             info: self.info,
             eventfd: self.eventfd,
         })

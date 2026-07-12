@@ -4,7 +4,7 @@ use tokio::time::{Duration, sleep};
 
 use zbus::{Connection, fdo::Error as ZBusError, proxy};
 
-use rtipc::{ChannelAttr, ChannelGroup, Consumer, GroupAttr, PopResult, Producer, QueueAttr};
+use rtipc::{ChannelAttr, ChannelGroup, Consumer, GroupAttr, PopResult, Producer};
 
 use rtipc_zbus::{AsyncEventFd, CommandId, MsgCommand, MsgEvent, MsgResponse};
 
@@ -123,28 +123,22 @@ async fn main() -> Result<(), ZBusError> {
     ];
 
     let c2s_channels: [ChannelAttr; 1] = [ChannelAttr {
-        queue: QueueAttr {
-            additional_messages: 0,
-            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
-        },
+        additional_messages: 0,
+        message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
         eventfd: true,
         info: b"rpc command".to_vec(),
     }];
 
     let s2c_channels: [ChannelAttr; 2] = [
         ChannelAttr {
-            queue: QueueAttr {
-                additional_messages: 0,
-                message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
-            },
+            additional_messages: 0,
+            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
             eventfd: true,
             info: b"rpc response".to_vec(),
         },
         ChannelAttr {
-            queue: QueueAttr {
-                additional_messages: 10,
-                message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
-            },
+            additional_messages: 10,
+            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
             eventfd: false,
             info: b"rpc event".to_vec(),
         },
